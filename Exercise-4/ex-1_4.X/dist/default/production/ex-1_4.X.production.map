@@ -68,9 +68,9 @@ Default Scalar Model: Small
 section                    address   length (PC units)   length (bytes) (dec)
 -------                    -------   -----------------   --------------------
 .text                        0x200               0x100           0x180  (384)
-.text                        0x300               0x12e           0x1c5  (453)
+.text                        0x300               0x17c           0x23a  (570)
 
-                 Total "program" memory used (bytes):          0x345  (837) <1%
+                 Total "program" memory used (bytes):          0x3ba  (954) <1%
 
 
 Auxflash Memory  [Origin = 0x7fc000, Length = 0x3ffa]
@@ -109,9 +109,9 @@ External Symbols in Program Memory (by address):
                   0x000248                  __data_init
                   0x0002fa                  __DefaultInterrupt
                   0x000300                  _tmr_setup_period
-                  0x000350                  _tmr_wait_period
-                  0x0003a0                  _tmr_wait_ms
-                  0x0003d6                  _main
+                  0x00036e                  _tmr_wait_period
+                  0x0003e4                  _tmr_wait_ms
+                  0x000424                  _main
 
 External Symbols in Program Memory (by name):
 
@@ -120,10 +120,10 @@ External Symbols in Program Memory (by name):
                   0x000248                  __data_init_extended
                   0x00023c                  __psv_init
                   0x000200                  __resetPRI
-                  0x0003d6                  _main
+                  0x000424                  _main
                   0x000300                  _tmr_setup_period
-                  0x0003a0                  _tmr_wait_ms
-                  0x000350                  _tmr_wait_period
+                  0x0003e4                  _tmr_wait_ms
+                  0x00036e                  _tmr_wait_period
 
 Memory Configuration
 
@@ -227,31 +227,31 @@ __FUID0
 .comment
  *(.comment)
 
-.debug_info       0x000000       0x114b
+.debug_info       0x000000       0x1277
  *(.debug_info)
  .debug_info      0x000000        0xae1 build/default/production/main4_1.o
- .debug_info      0x000ae1        0x66a build/default/production/_ext/2014297768/timer_config.o
+ .debug_info      0x000ae1        0x796 build/default/production/_ext/2014297768/timer_config.o
  *(.gnu.linkonce.wi.*)
 
-.debug_abbrev     0x000000        0x1df
+.debug_abbrev     0x000000        0x1f4
  *(.debug_abbrev)
  .debug_abbrev    0x000000         0xd8 build/default/production/main4_1.o
- .debug_abbrev    0x0000d8        0x107 build/default/production/_ext/2014297768/timer_config.o
+ .debug_abbrev    0x0000d8        0x11c build/default/production/_ext/2014297768/timer_config.o
 
-.debug_line       0x000000        0x27b
+.debug_line       0x000000        0x28b
  *(.debug_line)
  .debug_line      0x000000        0x127 build/default/production/main4_1.o
- .debug_line      0x000127        0x154 build/default/production/_ext/2014297768/timer_config.o
+ .debug_line      0x000127        0x164 build/default/production/_ext/2014297768/timer_config.o
 
 .debug_frame      0x000000         0x90
  *(.debug_frame)
  .debug_frame     0x000000         0x2e build/default/production/main4_1.o
  .debug_frame     0x00002e         0x62 build/default/production/_ext/2014297768/timer_config.o
 
-.debug_str        0x000000         0x52
+.debug_str        0x000000         0x6a
  *(.debug_str)
  .debug_str       0x000000         0x35 build/default/production/main4_1.o
- .debug_str       0x000035         0x1d build/default/production/_ext/2014297768/timer_config.o
+ .debug_str       0x000035         0x35 build/default/production/_ext/2014297768/timer_config.o
 
 .debug_loc
  *(.debug_loc)
@@ -2986,27 +2986,27 @@ OUTPUT(dist/default/production/ex-1_4.X.production.elf elf32-pic30)
 LOAD default_isr
 
 .debug_pubtypes
-                  0x000030        0x13a
+                  0x000030        0x159
  .debug_pubtypes
                   0x000030         0xc0 build/default/production/main4_1.o
  .debug_pubtypes
-                  0x0000f0         0x7a build/default/production/_ext/2014297768/timer_config.o
+                  0x0000f0         0x99 build/default/production/_ext/2014297768/timer_config.o
 
 __c30_signature
-                  0x00016a         0x18
+                  0x000189         0x18
  __c30_signature
-                  0x00016a          0x6 build/default/production/main4_1.o
+                  0x000189          0x6 build/default/production/main4_1.o
  __c30_signature
-                  0x000170          0x6 build/default/production/_ext/2014297768/timer_config.o
+                  0x00018f          0x6 build/default/production/_ext/2014297768/timer_config.o
  __c30_signature
-                  0x000176          0x6 c:/program files/microchip/xc16/v2.10/bin/bin/../../lib\libc99-pic30-elf.a(crt0_extendedep.o)
+                  0x000195          0x6 c:/program files/microchip/xc16/v2.10/bin/bin/../../lib\libc99-pic30-elf.a(crt0_extendedep.o)
  __c30_signature
-                  0x00017c          0x6 c:/program files/microchip/xc16/v2.10/bin/bin/../../lib\libc99-pic30-elf.a(data_init_extended.o)
+                  0x00019b          0x6 c:/program files/microchip/xc16/v2.10/bin/bin/../../lib\libc99-pic30-elf.a(data_init_extended.o)
 
-.text             0x000300        0x12e
- .text            0x000300         0xd6 build/default/production/_ext/2014297768/timer_config.o
+.text             0x000300        0x17c
+ .text            0x000300        0x124 build/default/production/_ext/2014297768/timer_config.o
                   0x000300                  _tmr_setup_period
-                  0x000350                  _tmr_wait_period
-                  0x0003a0                  _tmr_wait_ms
- .text            0x0003d6         0x58 build/default/production/main4_1.o
-                  0x0003d6                  _main
+                  0x00036e                  _tmr_wait_period
+                  0x0003e4                  _tmr_wait_ms
+ .text            0x000424         0x58 build/default/production/main4_1.o
+                  0x000424                  _main

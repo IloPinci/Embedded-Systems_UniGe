@@ -10,11 +10,38 @@
 #include "timer_config.h"
 #include <stdio.h>
 
+#define BUF_SIZE 16    
+
+// the tail and the next must never equal each other because then it will 
+// cause overflow. And for this reason we define the buffer size a bit bigger
+// than the theoretical maximum number of characters that can be tranmistted
+volatile char buffer[BUF_SIZE];
+volatile int head = 0;
+volatile int tail = 0;
+
+volatile int total_chars = 0;
+volatile int overflow = 0;
+
+volatile char reciv_char[3];
+volatile int index = 0;
 
 
-void __attribute__((interrupt, no_auto_psv)) _T3Interrupt(void) {
-    IFS0bits.T3IF = 0;      // we clear so we can redo the whole thing again
-    LATGbits.LATG9 = !LATGbits.LATG9;   //the switching    
+void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void) {
+    IFS0bits.U1RXIF = 0;
+    
+    while (U1STAbits.URXDA == 1) {
+        char value = U1RXREG;
+        
+        int next = (head + 1) % BUF_SIZE;  // '%' is used to wrap around
+        if (next != tail) {
+            buffer[head] = value;
+            head = next;
+        } else {
+            overflow++;   // buffer full ? drop char
+        }   
+        
+        total_chars++;
+    }
 }
 
 
@@ -28,7 +55,7 @@ int main(void) {
     ANSELD = 0;
     ANSELA = 0;
     ANSELE = 0;
-    
+
     // define the i/o
     TRISDbits.TRISD11 = 1;      // 1 -> input for uart
     TRISDbits.TRISD0 = 0;       // 0 -> output for uart
@@ -44,7 +71,6 @@ int main(void) {
     
     
     // now we remap the pins    
-    
     // remap for the input which is supposed to be the RD11 pin
     RPINR18bits.U1RXR = 75;         // for input
     
@@ -59,110 +85,96 @@ int main(void) {
     U1MODEbits.UARTEN = 1;
     U1STAbits.UTXEN = 1;
     
-    tmr_setup_period(TIMER3, 200);
-    IFS0bits.T3IF = 0;      // we clean the flag just in case
-    IEC0bits.T3IE = 1;      // we enable the interrupts
-    
+    IFS0bits.U1RXIF = 0;
+    IEC0bits.U1RXIE = 1;
+
     tmr_setup_period(TIMER1, 10);
     
-    int count = 0;
+    int led2_flag = 1;
+    int led2_count = 0;
+    
     int missed=0;
-    int index = 0;
     int button_initial_1 = 0, button_initial_2 = 0;
     int button_now_1, button_now_2;
-    char reciv_char[3];
     
     
     while(1){
-        
+        // since the while itself is executed every 100 ms we toggle on and off
+        // every 200 ms
+        if(led2_count++ == 20){
+            if (led2_flag == 1){
+                LATGbits.LATG9 = !LATGbits.LATG9;
+            }
+            led2_count = 0;
+        }        
+         
         // Handle buttons 
         button_now_1 = PORTEbits.RE8;
         button_now_2 = PORTEbits.RE9;
         
         if (button_now_1 == 1 && button_now_1 != button_initial_1) {
+            char buff[10];
             
-            char buff[3];
+            sprintf(buff, "C=%d", total_chars);
             int i = 0;
-            
-            sprintf(buff, "C=%d", count);
             
             while (buff[i] != '\0'){
                 while(U1STAbits.UTXBF == 1);   
                 U1TXREG = buff[i++];
-            }
-            
-            algorithm();        // to battle debouncing
-            
-            button_now_1 = PORTEbits.RE8;   // just to make sure that the button has the same state
-                        
+            }                       
         }       
-        else if (button_now_2 == 1 && button_now_2 != button_initial_2){
+        
+        if (button_now_2 == 1 && button_now_2 != button_initial_2){
             
-            char buff[3];
+            char buff[10];
             int i = 0;
             
-            sprintf(buff, "V=%d", missed);
+            sprintf(buff, "D=%d", missed);
             
             while (buff[i] != '\0'){
                 while(U1STAbits.UTXBF == 1);   
                 U1TXREG = buff[i++];
-            }
-            
-            algorithm();        // to battle debouncing
-            
-            button_now_2 = PORTEbits.RE8;         
+            }       
         }
-        else{
-           algorithm(); 
-        }
-        
-        // we update the history
+           
+        // we update the history of the buttons
         button_initial_1 = button_now_1;
         button_initial_2 = button_now_2;
        
-              
-        
-        // if i write long words (more than 4 chars) it gets messed up so i just don't care 
-        // and i continue to receive with the cost that the word is lost
-        if (U1STAbits.OERR == 1) {
-            U1STAbits.OERR = 0;   // clear the error so i can read again
-            index = 0;            // just to make sure
-        }
-        
-        
-        while (U1STAbits.URXDA == 1){
-            count++;
-            
-            char tempChar = U1RXREG;
-            
-            while(U1STAbits.UTXBF == 1);    // we send it back just for debug
-            U1TXREG = tempChar;
-            
+       while (tail != head){
+           char tempChar = buffer[tail];
+           tail = (tail+1) % BUF_SIZE;
+           
+           // send back the character
+           while(U1STAbits.UTXBF == 1);
+           U1TXREG = tempChar;
+           
+           reciv_char[0] = reciv_char[1];
+           reciv_char[1] = reciv_char[2];
+           reciv_char[2] = tempChar;
+           
             if (index < 3){
-                reciv_char[index] = tempChar;
                 index++;
             }
-        }
-        
-        if (index >= 3){            
-            if (reciv_char[0] == 'l' && reciv_char[1] == 'd' && 
-                    (reciv_char[2] == '1' || reciv_char[2] == '2')){ 
-                
-                // to toggle the LED1
-                if (reciv_char[2] == '1'){
-                    LATAbits.LATA0 = !LATAbits.LATA0;
+           
+           if (index == 3){            
+                if (reciv_char[0] == 'l' && reciv_char[1] == 'd' && 
+                        (reciv_char[2] == '1' || reciv_char[2] == '2')){ 
+
+                    // to toggle the LED1
+                    if (reciv_char[2] == '1'){
+                        LATAbits.LATA0 = !LATAbits.LATA0;
+                    }
+                    else{
+                        led2_flag = !led2_flag;
+                    }
+                    reciv_char[0] = reciv_char[1] = reciv_char[2] = 0;
                 }
-                // to stop the blinking we stop just the timer interrupt
-                else{
-                    IFS0bits.T3IF = 0;                  // the flag becomes 0 always bc we dont want a trigger
-                    IEC0bits.T3IE = !IEC0bits.T3IE;     // since stop/resume toggle the interrupt
-                    T3CONbits.TON = !T3CONbits.TON;     // same idea for the timer
-                    TMR3 = 0;                           // for good measure we reset it                    
-                }
-            }
-            index = 0;
-        }
+            } 
+       }              
+        algorithm();
         
+        // 100Hz and we check if it missed the deadline
         if (tmr_wait_period(TIMER1) == 1){
             missed++;
         }
@@ -170,3 +182,5 @@ int main(void) {
     
     return 0;
 }
+
+
