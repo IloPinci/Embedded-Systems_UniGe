@@ -28,10 +28,9 @@ volatile int char_index  = 0;
 volatile int timer_count = 0;
 volatile int ang_count = 0;
 
-volatile int hz_period = 10;   // default 10 Hz so every 10 loops
+volatile int hz_period = 10;  
 volatile int hz_count  = 0;
 
-volatile int rx_debug = 0;
 
 typedef struct{
     int16_t axis_x;
@@ -52,7 +51,6 @@ void __attribute__((interrupt, no_auto_psv)) _T3Interrupt(void) {
 // This is for reading from the uart
 void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void) {
     IFS0bits.U1RXIF = 0;
-    rx_debug++;
     
     while (U1STAbits.URXDA == 1) {
         char value = U1RXREG;
@@ -175,12 +173,12 @@ void uart_transmit(const char* message){
         transmit_buffer[transmit_head] = *message++;
         transmit_head = next;
     }
-    // Manually send first byte to kick off the interrupt chain
+    // we manually send the first byte to kick off the interrupt chain
     if (transmit_tail != transmit_head) {
         IEC0bits.U1TXIE = 0;                // disable interrupt briefly
         U1TXREG = transmit_buffer[transmit_tail];
         transmit_tail = (transmit_tail + 1) % BUF_SIZE;
-        IEC0bits.U1TXIE = 1;                // now enable ? rest sent by interrupt
+        IEC0bits.U1TXIE = 1;                // we enable the uart so the rest is sent by interrupt
     }
 }
 
@@ -218,21 +216,23 @@ void accel_bw(int bw){
 }
 
 
-// for the frequency of the uart
+// we change the transmit frequency of the data by determining a value that can be used
+// inside the main loop 
 void uart_frequency_change(int value){
 
     switch(value) {
         case 0:  hz_period = 0;   break;
-        case 1:  hz_period = 100; break;
-        case 2:  hz_period = 50;  break;
-        case 5:  hz_period = 20;  break;
-        case 10: hz_period = 10;  break;
+        case 1:  hz_period = 100; break;    // 1000ms
+        case 2:  hz_period = 50;  break;    // 500ms
+        case 5:  hz_period = 20;  break;    // 200ms
+        case 10: hz_period = 10;  break;    // 100ms
         default:
             uart_transmit("$ERR,2*");
             break;
     }    
 }
 
+// we get the axes at 50Hz and we calculate the roll/pitch. the latter even though 
 EulerAngles accel_axis(){
     EulerAngles result;
 
@@ -241,70 +241,86 @@ EulerAngles accel_axis(){
 
     // x-axis starts at 0x42 ends at 0x43
     LATBbits.LATB3 = 0;
-    spi_write(0x42 | 0x80); 
+    spi_write(0x02 | 0x80); 
     LSB_part = spi_write(0x00);
     MSB_part = spi_write(0x00);         // it is auto incremented     
-    
-    result.axis_x = ((int16_t)((MSB_part << 8) | LSB_part)) >> 3;
-    
+
+    result.axis_x = ((int16_t)((MSB_part << 8) | LSB_part)) >> 4;
+
     // y-axis starts at 0x44 ends at 0x45
     LSB_part = spi_write(0x00);
     MSB_part = spi_write(0x00);           
-    result.axis_y = ((int16_t)((MSB_part << 8) | LSB_part)) >> 3;
-    
+    result.axis_y = ((int16_t)((MSB_part << 8) | LSB_part)) >> 4;
+
     // z-axis starts at 0x46 ends at 0x47
     LSB_part = spi_write(0x00);
     MSB_part = spi_write(0x00);         
-    result.axis_z = ((int16_t)((MSB_part << 8) | LSB_part)) >> 1;   // z-axis has 15 bits
+    result.axis_z = ((int16_t)((MSB_part << 8) | LSB_part)) >> 4;   // z-axis has 15 bits
     LATBbits.LATB3 = 1;
     
+    double ax, ay, az;
+    
+    ax = (double) result.axis_x;
+    ay = (double) result.axis_y;
+    az = (double) result.axis_z;
+    
     // angle calculation
-    result.roll = atan2(result.axis_y, result.axis_z) * (180.0 / PI);  // roll in degrees
-    result.pitch = atan2(-result.axis_x, sqrt((result.axis_y * result.axis_y) + (result.axis_z * result.axis_z))) * (180.0 / PI); //pitch
+    result.roll = atan2(ay, az) * (180.0 / PI);  // roll in degrees
+    result.pitch = atan2(-ax, sqrt((ay * ay) + (az * az))) * (180.0 / PI); //pitch
     
     return result;
 }
 
 
 int main() {
-    int period_misses = 0;
+    int period_misses = 0, value = 0;
+
     char reciv_char[7] = {0, 0, 0, 0, 0, 0, 0};;
-    int value = 0;
-    EulerAngles euler_angles;
     char buffer_euler[48];
-    
+
+    EulerAngles euler_angles;
+
     initial_setup();
     uart_setup();
     spi_setup();
-    accel_read_flag = 1;
+
     accel_bw(15);
     
     
     while(1){
         algorithm();
 
-        // we have to get the accelerometer data every 20 ms so every two iterations
-        if (++accel_count >= 2 && accel_read_flag == 1){    // we make sure that the data is filtered correctly
+        // we have to get the accelerometer data every 20ms (50Hz) so every two iterations
+        if (++accel_count >= 2){    
             accel_count = 0;
-            euler_angles =  accel_axis();
-
-            // send the angle axes
-            if (hz_period > 0 && ++hz_count >= hz_period) {
-                hz_count = 0;
-                sprintf(buffer_euler, "$ACC,%d,%d,%d*",
-                (int)euler_angles.axis_x,
-                (int)euler_angles.axis_y,
-                (int)euler_angles.axis_z);
-
-                uart_transmit(buffer_euler);
+            if (accel_read_flag == 1){          // we make sure that the data is filtered correctly
+                euler_angles =  accel_axis();
             }
         }
 
-        // for the angles 
+        // send the angle axes (also every ms value of the frequencies are a multiple of 20ms)
+        if (hz_period > 0 && ++hz_count >= hz_period) {   // +2 bc one main loop is 10ms but we enter the daq every 20ms
+            hz_count = 0;
+            sprintf(buffer_euler, "$ACC,%d,%d,%d*",
+            (int)euler_angles.axis_x,
+            (int)euler_angles.axis_y,
+            (int)euler_angles.axis_z);
+
+            uart_transmit(buffer_euler);
+            // if the filter is still being normalized we just post the previous values
+        }
+
+        // for the angles which are transmitted a fixed 5Hz
         if (++ang_count >= 20) {
             ang_count = 0;
-            sprintf(buffer_euler, "$ANG,%.2f,%.2f,RX:%d**", (double)euler_angles.roll, (double)euler_angles.pitch, rx_debug);
+            sprintf(buffer_euler, "$ANG,%.1f,%.1f*", (double) euler_angles.roll, (double) euler_angles.pitch);
             uart_transmit(buffer_euler);
+
+            
+            // to check the number of missed periods
+//            char dbg[32];
+//            sprintf(dbg, "$DBG,%d*", period_misses);
+//            uart_transmit(dbg);
         }
         
         while (receive_tail != receive_head){
@@ -324,14 +340,6 @@ int main() {
             }
            
            if (char_index  == 7){          
-            
-//            sprintf(buffer_euler, "$DBG,%d,%d,%d,%d,%d,%d,%d*",
-//            (int)reciv_char[0], (int)reciv_char[1], (int)reciv_char[2],
-//            (int)reciv_char[3], (int)reciv_char[4], (int)reciv_char[5],
-//            (int)reciv_char[6]);
-//            uart_transmit(buffer_euler);
-            
-
                 if (reciv_char[0] == '$' && reciv_char[3] == ',' && reciv_char[6] == '*' &&
                    ((reciv_char[1] == 'H' &&  reciv_char[2] == 'Z') ||
                    (reciv_char[1] == 'B' && reciv_char[2] == 'W')) &&
@@ -353,19 +361,17 @@ int main() {
                 }
             } 
        }               
+             
         
-        
-            
-        
-        if(!tmr_wait_period(TIMER1)){
+        if(tmr_wait_period(TIMER1)){
             period_misses++;
         }
+        // Led
         if (++timer_count == 50){
             LATGbits.LATG9 = !LATGbits.LATG9;
             timer_count = 0;
         }
     }
-    
     return (EXIT_SUCCESS);
 }
 
