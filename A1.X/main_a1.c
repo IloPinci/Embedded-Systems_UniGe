@@ -26,7 +26,7 @@ volatile int accel_count = 0;
 volatile int char_index  = 0;
 
 volatile int timer_count = 0;
-volatile int ang_count = 0;
+volatile int ang_count = 5;
 
 volatile int hz_period = 10;  
 volatile int hz_count  = 0;
@@ -103,8 +103,8 @@ void uart_setup(){
     RPOR0bits.RP64R = 0x01;         //  for output which is supposed to be the RD0        
     
     // Baud Rate Setup
-    U1MODEbits.BRGH = 0;    // to select the 16 divisor
-    U1BRG = 468;            // we load it so we can get 9600
+    U1MODEbits.BRGH = 1;    // to select the 16 divisor
+    U1BRG = 155;            // we load it so we can get 9600
     
     // Power on the module
     U1MODEbits.UARTEN = 1;
@@ -219,7 +219,7 @@ void accel_bw(int bw){
 // we change the transmit frequency of the data by determining a value that can be used
 // inside the main loop 
 void uart_frequency_change(int value){
-
+    hz_count = 0;
     switch(value) {
         case 0:  hz_period = 0;   break;
         case 1:  hz_period = 100; break;    // 1000ms
@@ -239,7 +239,7 @@ EulerAngles accel_axis(){
     uint16_t LSB_part, MSB_part;
     
 
-    // x-axis starts at 0x42 ends at 0x43
+    // x-axis starts at 0x02 ends at 0x03
     LATBbits.LATB3 = 0;
     spi_write(0x02 | 0x80); 
     LSB_part = spi_write(0x00);
@@ -247,26 +247,26 @@ EulerAngles accel_axis(){
 
     result.axis_x = ((int16_t)((MSB_part << 8) | LSB_part)) >> 4;
 
-    // y-axis starts at 0x44 ends at 0x45
+    // y-axis starts at 0x04 ends at 0x05
     LSB_part = spi_write(0x00);
     MSB_part = spi_write(0x00);           
     result.axis_y = ((int16_t)((MSB_part << 8) | LSB_part)) >> 4;
 
-    // z-axis starts at 0x46 ends at 0x47
+    // z-axis starts at 0x06 ends at 0x07
     LSB_part = spi_write(0x00);
     MSB_part = spi_write(0x00);         
     result.axis_z = ((int16_t)((MSB_part << 8) | LSB_part)) >> 4;   // z-axis has 15 bits
     LATBbits.LATB3 = 1;
     
-    double ax, ay, az;
+    float ax, ay, az;
     
-    ax = (double) result.axis_x;
-    ay = (double) result.axis_y;
-    az = (double) result.axis_z;
+    ax = (float) result.axis_x;
+    ay = (float) result.axis_y;
+    az = (float) result.axis_z;
     
     // angle calculation
-    result.roll = atan2(ay, az) * (180.0 / PI);  // roll in degrees
-    result.pitch = atan2(-ax, sqrt((ay * ay) + (az * az))) * (180.0 / PI); //pitch
+    result.roll = atan2f(ay, az) * (180.0 / (float)PI);  // roll in degrees
+    result.pitch = atan2f(-ax, sqrtf((ay * ay) + (az * az))) * (180.0 / (float)PI); //pitch
     
     return result;
 }
@@ -318,9 +318,9 @@ int main() {
 
             
             // to check the number of missed periods
-//            char dbg[32];
-//            sprintf(dbg, "$DBG,%d*", period_misses);
-//            uart_transmit(dbg);
+            char dbg[32];
+            sprintf(dbg, "$DBG,%d*", period_misses);
+            uart_transmit(dbg);
         }
         
         while (receive_tail != receive_head){
