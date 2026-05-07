@@ -12,24 +12,54 @@
 #include <math.h>
 
 
-#define BUF_SIZE 64 
+#define T_BUF_SIZE 64 
+#define R_BUF_SIZE 16 
 #define PI 3.14159265358979323846
 
-volatile char receive_buffer[BUF_SIZE];
-volatile int receive_head = 0, receive_tail = 0;
+typedef struct{
+    volatile char *data;
+    volatile int head;
+    volatile int tail;
+    const int buf_size;
+}Circular_Buffer;
 
-volatile char transmit_buffer[BUF_SIZE];
-volatile int transmit_head = 0, transmit_tail = 0;
+static volatile char receive_data[R_BUF_SIZE];
+static volatile char transmit_data[T_BUF_SIZE];
+
+Circular_Buffer receive_buffer = {receive_data, 0, 0, R_BUF_SIZE };
+Circular_Buffer transmit_buffer = {transmit_data, 0, 0, T_BUF_SIZE };
 
 volatile int accel_read_flag = 0;
-volatile int accel_count = 0;
-volatile int char_index  = 0;
 
-volatile int timer_count = 0;
-volatile int ang_count = 5;
+int accel_count = 0;
+int char_index  = 0;
 
-volatile int hz_period = 10;  
-volatile int hz_count  = 0;
+int timer_count = 0;
+int ang_count = 5;
+
+int hz_period = 10;  
+int hz_count  = 0;
+
+int cb_produce(Circular_Buffer *cb, char c){
+    int next = (cb->head + 1) % cb->buf_size;
+
+    if (next == cb -> tail){    // if the buffer is full
+        return 0;   
+    }
+
+    cb->data[cb->head] = c;
+    cb->head = next;
+    return 1;       
+}
+
+int cb_consume(Circular_Buffer *cb, char *out){
+    if (cb->tail == cb->head){
+        return 0;       // it means that the transmit buffer is empty
+    }
+    *out = cb->data[cb->tail];
+    cb->tail = (cb->tail + 1) % cb->buf_size;
+    return 1;
+}
 
 
 typedef struct{
@@ -39,7 +69,7 @@ typedef struct{
 
     float roll;
     float pitch;
-} EulerAngles;
+} Accel_DataStruct;
 
 // we change the read flag allowing for the reading of the accel values
 void __attribute__((interrupt, no_auto_psv)) _T3Interrupt(void) {
@@ -53,28 +83,21 @@ void __attribute__((interrupt, no_auto_psv)) _U1RXInterrupt(void) {
     IFS0bits.U1RXIF = 0;
     
     while (U1STAbits.URXDA == 1) {
-        char value = U1RXREG;
-        
-        int next = (receive_head + 1) % BUF_SIZE;  // '%' is used to wrap around
-        if (next != receive_tail) {
-            receive_buffer[receive_head] = value;
-            receive_head = next;
-        }   
+        cb_produce(&receive_buffer, U1RXREG);
     }
 }
 
-// to transmit 
+// to transmit  
 void __attribute__((interrupt, no_auto_psv)) _U1TXInterrupt(void) {
     IFS0bits.U1TXIF = 0;
+    char c;
 
-    if (transmit_tail != transmit_head) {
-        U1TXREG = transmit_buffer[transmit_tail];
-        transmit_tail = (transmit_tail + 1) % BUF_SIZE;
+    if (cb_consume(&transmit_buffer, &c)) {
+        U1TXREG = c;
     } else {
         IEC0bits.U1TXIE = 0;       // nothing left so we disable interrupt
     }
 }
-
 
 void initial_setup(){
     // disable the analog modality
@@ -82,7 +105,6 @@ void initial_setup(){
     
     // timers
     tmr_setup_period(TIMER1, 10);
-    tmr_setup_period(TIMER2, 10);
     
     // LED2
     TRISGbits.TRISG9 = 0;       // output
@@ -104,7 +126,7 @@ void uart_setup(){
     
     // Baud Rate Setup
     U1MODEbits.BRGH = 1;    // to select the 16 divisor
-    U1BRG = 155;            // we load it so we can get 9600
+    U1BRG = 155;            // we load it so we can get 115200
     
     // Power on the module
     U1MODEbits.UARTEN = 1;
@@ -167,17 +189,17 @@ unsigned int spi_write(unsigned int data){
 }
 
 void uart_transmit(const char* message){
+    char c;
+
     while (*message) {
-        int next = (transmit_head + 1) % BUF_SIZE;
-        while (next == transmit_tail);  // wait if buffer full
-        transmit_buffer[transmit_head] = *message++;
-        transmit_head = next;
+        while (!cb_produce(&transmit_buffer, *message));  // wait if buffer full
+        message++;
     }
+
     // we manually send the first byte to kick off the interrupt chain
-    if (transmit_tail != transmit_head) {
+    if (cb_consume(&transmit_buffer, &c)) {
         IEC0bits.U1TXIE = 0;                // disable interrupt briefly
-        U1TXREG = transmit_buffer[transmit_tail];
-        transmit_tail = (transmit_tail + 1) % BUF_SIZE;
+        U1TXREG = c;
         IEC0bits.U1TXIE = 1;                // we enable the uart so the rest is sent by interrupt
     }
 }
@@ -233,8 +255,8 @@ void uart_frequency_change(int value){
 }
 
 // we get the axes at 50Hz and we calculate the roll/pitch. the latter even though 
-EulerAngles accel_axis(){
-    EulerAngles result;
+Accel_DataStruct accel_read(){
+    Accel_DataStruct result;
 
     uint16_t LSB_part, MSB_part;
     
@@ -275,10 +297,11 @@ EulerAngles accel_axis(){
 int main() {
     int period_misses = 0, value = 0;
 
-    char reciv_char[7] = {0, 0, 0, 0, 0, 0, 0};;
+    char reciv_char[7] = {0};
     char buffer_euler[48];
+    char tempChar;
 
-    EulerAngles euler_angles;
+    Accel_DataStruct ads;
 
     initial_setup();
     uart_setup();
@@ -294,7 +317,7 @@ int main() {
         if (++accel_count >= 2){    
             accel_count = 0;
             if (accel_read_flag == 1){          // we make sure that the data is filtered correctly
-                euler_angles =  accel_axis();
+                ads =  accel_read();
             }
         }
 
@@ -302,9 +325,9 @@ int main() {
         if (hz_period > 0 && ++hz_count >= hz_period) {   // +2 bc one main loop is 10ms but we enter the daq every 20ms
             hz_count = 0;
             sprintf(buffer_euler, "$ACC,%d,%d,%d*",
-            (int)euler_angles.axis_x,
-            (int)euler_angles.axis_y,
-            (int)euler_angles.axis_z);
+            (int)ads.axis_x,
+            (int)ads.axis_y,
+            (int)ads.axis_z);
 
             uart_transmit(buffer_euler);
             // if the filter is still being normalized we just post the previous values
@@ -313,7 +336,7 @@ int main() {
         // for the angles which are transmitted a fixed 5Hz
         if (++ang_count >= 20) {
             ang_count = 0;
-            sprintf(buffer_euler, "$ANG,%.1f,%.1f*", (double) euler_angles.roll, (double) euler_angles.pitch);
+            sprintf(buffer_euler, "$ANG,%.1f,%.1f*", (double) ads.roll, (double) ads.pitch);
             uart_transmit(buffer_euler);
 
             
@@ -323,9 +346,7 @@ int main() {
             uart_transmit(dbg);
         }
         
-        while (receive_tail != receive_head){
-           char tempChar = receive_buffer[receive_tail];
-           receive_tail = (receive_tail+1) % BUF_SIZE;
+        while (cb_consume(&receive_buffer, &tempChar)){
            
            reciv_char[0] = reciv_char[1];
            reciv_char[1] = reciv_char[2];
