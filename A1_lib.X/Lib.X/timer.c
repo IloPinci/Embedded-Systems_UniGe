@@ -71,7 +71,7 @@ int tmr_wait_period(int timer){
     
     else if (timer == TIMER3){
         if(IFS0bits.T3IF == 1){
-            IFS0bits.T3IF == 0;
+            IFS0bits.T3IF = 0;
             return 1;
         }
         while(IFS0bits.T3IF == 0);
